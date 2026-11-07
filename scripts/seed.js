@@ -103,7 +103,7 @@ const courses = [
     categories: ['mindfulness', 'life-transformation'],
     priceMinor: 29900,
     currency: 'USD',
-    availableForPurchase: false,
+    availableForPurchase: true,
     publicationStatus: 'published',
     banner: { url: '/images/courses/mindlife-banner.webp', width: 1670, height: 942 }
   },
@@ -121,7 +121,7 @@ const courses = [
     categories: ['spiritual-growth'],
     priceMinor: 100000,
     currency: 'USD',
-    availableForPurchase: false,
+    availableForPurchase: true,
     publicationStatus: 'published',
     banner: { url: '/images/courses/sa1-banner.webp', width: 1670, height: 941 }
   },
@@ -139,7 +139,7 @@ const courses = [
     categories: ['spiritual-growth'],
     priceMinor: 200000,
     currency: 'USD',
-    availableForPurchase: false,
+    availableForPurchase: true,
     publicationStatus: 'published',
     banner: { url: '/images/courses/sa2-banner.webp', width: 1670, height: 942 }
   },
@@ -157,7 +157,7 @@ const courses = [
     categories: ['consciousness', 'spiritual-growth', 'life-transformation'],
     priceMinor: 219900,
     currency: 'USD',
-    availableForPurchase: false,
+    availableForPurchase: true,
     publicationStatus: 'published',
     bundleLegacy: ['accelerator', 'mindlife', 'sa1', 'sa2'],
     features: ['All videos from all four courses', '4 free 1-on-1 sessions with Zalah'],
