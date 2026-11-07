@@ -107,8 +107,7 @@ router.get(
   '/courses',
   asyncHandler(async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 60, 100);
-    const single = (await visibleCourses()).filter((course) => !(course.bundleIncludes || []).length);
-    const slice = single.slice(0, limit);
+    const slice = (await visibleCourses()).slice(0, limit);
     const counts = await publishedCounts(slice.map((c) => c._id));
     paginated(res, { courses: slice.map((c) => cardView(c, counts)) }, { total: slice.length, page: 1, pages: 1 });
   })
