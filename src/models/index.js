@@ -101,6 +101,7 @@ const courseSchema = new Schema(
     publicationStatus: { type: String, enum: ['draft', 'published'], default: 'draft', index: true },
     outcomes: [{ type: String }],
     whoFor: [{ type: String }],
+    features: [{ type: String }],
     faqs: [{ q: String, a: String }],
     seo: { title: String, description: String },
     banner: { url: String, width: Number, height: Number }

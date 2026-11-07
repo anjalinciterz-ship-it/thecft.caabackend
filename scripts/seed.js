@@ -123,7 +123,8 @@ const courses = [
     currency: 'USD',
     availableForPurchase: false,
     publicationStatus: 'published',
-    bundleLegacy: ['accelerator', 'sa1', 'sa2'],
+    bundleLegacy: ['accelerator', 'mindlife', 'sa1', 'sa2'],
+    features: ['All videos from all four courses', '4 free 1-on-1 sessions with Zalah'],
     banner: { url: '/images/courses/complete-banner.webp', width: 1671, height: 941 }
   }
 ];
