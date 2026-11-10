@@ -1,5 +1,4 @@
 import { randomInt } from 'node:crypto';
-import { env } from '../config/env.js';
 import { ApiError } from '../lib/http.js';
 import { hashToken } from '../lib/security.js';
 import { OtpChallenge } from '../models/index.js';
@@ -42,11 +41,18 @@ export async function issueOtp({ channel, destination, purpose, profile }) {
     resendAt: new Date(now.getTime() + OTP_RESEND_SECONDS * 1000)
   });
 
-  await sendEmail({ template: 'otp_code', to: destination, otp: { code, channel, purpose, minutes: Math.round(OTP_TTL_SECONDS / 60) } });
+  const mail = await sendEmail({ template: 'otp_code', to: destination, otp: { code, channel, purpose, minutes: Math.round(OTP_TTL_SECONDS / 60) } });
 
   // Without a live email provider the code would be unreachable, so it is logged
   // for local runs only. A configured provider never sees it leave the process.
-  if (env.EMAIL_PROVIDER !== 'resend' || !env.RESEND_API_KEY) console.log(`[otp:dev] code for ${destination}: ${code}`);
+  if (mail.status === 'skipped') console.log(`[otp:dev] code for ${destination}: ${code}`);
+  if (mail.status === 'failed') {
+    // A code nobody received is not a challenge worth keeping, and the client may
+    // never claim one was sent when the mail did not leave.
+    await OtpChallenge.deleteOne({ _id: challenge._id });
+    console.error(`[otp:delivery] ${destination}: ${mail.error}`);
+    throw ApiError.badRequest('otp_delivery_failed', 'The verification email could not be delivered. Check the address, or sign in another way.');
+  }
 
   return { challenge, code };
 }

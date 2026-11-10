@@ -20,7 +20,7 @@ export const funnelUser = {
   admin: { email: 'browser.admin@verify.test', password: 'BrowserAdmin2026' }
 };
 
-export async function startDevStack({ quiet = false, useRealAuth = false } = {}) {
+export async function startDevStack({ quiet = false, useRealAuth = false, liveMail = false } = {}) {
   const mongo = await memory.MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
 
   // A person clicking through the site expects whatever backend/.env switches on:
@@ -54,6 +54,13 @@ export async function startDevStack({ quiet = false, useRealAuth = false } = {})
     AUTH_OTP_EMAIL_ENABLED: 'true',
     AUTH_MAGIC_LINK_ENABLED: 'true',
     VIDEO_MAX_CONCURRENT_SESSIONS: '1',
+    // Only a manual run uses backend/.env mail. The automated stacks keep the
+    // mock provider so the codes and links they read from stdout still appear,
+    // and so no test address ever costs a real Resend request.
+    EMAIL_PROVIDER: liveMail ? process.env.EMAIL_PROVIDER : 'mock',
+    RESEND_API_KEY: liveMail ? process.env.RESEND_API_KEY || undefined : undefined,
+    EMAIL_FROM: liveMail ? process.env.EMAIL_FROM || undefined : undefined,
+    ADMIN_NOTIFY_EMAIL: liveMail ? process.env.ADMIN_NOTIFY_EMAIL || undefined : undefined,
     ...realFromEnv
   });
 
@@ -72,7 +79,6 @@ export async function startDevStack({ quiet = false, useRealAuth = false } = {})
       email: account.email,
       role,
       emailVerified: true,
-      phoneVerified: true,
       status: 'active'
     });
     await user.save();
@@ -89,7 +95,10 @@ export async function startDevStack({ quiet = false, useRealAuth = false } = {})
   if (!quiet) {
     console.log(`dev-stack ready on http://127.0.0.1:${PORT} (mock payments, seeded catalog, in-memory db)`);
     console.log(`student ${funnelUser.student.email} / ${funnelUser.student.password}`);
-    console.log('email codes print here as [otp:dev] and sign-in links as [magic:dev], no mailbox is connected in this stack.');
+    const mailLive = liveMail && process.env.EMAIL_PROVIDER === 'resend' && !!process.env.RESEND_API_KEY;
+    console.log(mailLive
+      ? `Mail is live through Resend from ${process.env.EMAIL_FROM}. Until that sender domain is verified, Resend only delivers to the account owner's own address.`
+      : 'No mailbox is connected in this stack: email codes print here as [otp:dev] and sign-in links as [magic:dev].');
     const googleLive = process.env.AUTH_GOOGLE_ENABLED === 'true' && process.env.GOOGLE_CLIENT_ID;
     console.log(googleLive
       ? `Google sign-in on with client ${process.env.GOOGLE_CLIENT_ID}, that origin must be an authorized JavaScript origin in Google Console.`
@@ -111,7 +120,7 @@ export async function startDevStack({ quiet = false, useRealAuth = false } = {})
 // Compares resolved URLs so a Windows backslash argv still counts as "run directly".
 const startedDirectly = Boolean(process.argv[1]) && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 if (startedDirectly) {
-  const stack = await startDevStack({ useRealAuth: true });
+  const stack = await startDevStack({ useRealAuth: true, liveMail: true });
 
   // Only when a human is driving the site by hand: the mock provider still never
   // marks an order paid on its own, so this stands in for the provider's webhook

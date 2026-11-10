@@ -113,13 +113,18 @@ export async function sendEmail({ template, to, student, order, courses, course,
   }
 
   try {
+    // The SDK answers with { data, error } instead of throwing, so a rejected
+    // send looks like a resolved promise unless the error field is read.
     const sent = await resend().emails.send({ from: env.EMAIL_FROM, to: record.to, subject, html });
-    record.providerId = sent.id;
+    if (sent?.error) throw new Error(sent.error.message || 'The email provider rejected the message.');
+    record.providerId = sent?.data?.id;
     record.status = 'sent';
     record.sentAt = new Date();
+    console.log(`[email:sent] ${template} -> ${record.to} (${subject}) id=${record.providerId}`);
   } catch (err) {
     record.status = 'failed';
     record.error = err.message;
+    console.error(`[email:failed] ${template} -> ${record.to}: ${err.message}`);
   }
   // A failed send keeps its body so an admin can retry it; a delivered code does not.
   if (record.status === 'sent') await redact(record, template);

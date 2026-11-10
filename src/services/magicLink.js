@@ -44,7 +44,7 @@ export async function issueMagicLink({ destination }) {
     resendAt: new Date(now.getTime() + MAGIC_LINK_RESEND_SECONDS * 1000)
   });
 
-  await sendEmail({
+  const mail = await sendEmail({
     template: 'magic_link',
     to: destination,
     magic: { url, minutes: Math.round(MAGIC_LINK_TTL_SECONDS / 60) }
@@ -52,8 +52,11 @@ export async function issueMagicLink({ destination }) {
 
   // Without a live email provider the link would be unreachable, so it is logged
   // for local runs only. A configured provider never sees it leave the process.
-  if (env.EMAIL_PROVIDER !== 'resend' || !env.RESEND_API_KEY) {
-    console.log(`[magic:dev] sign-in link for ${destination}: ${url}`);
+  if (mail.status === 'skipped') console.log(`[magic:dev] sign-in link for ${destination}: ${url}`);
+  if (mail.status === 'failed') {
+    await MagicLinkChallenge.deleteOne({ _id: challenge._id });
+    console.error(`[magic:delivery] ${destination}: ${mail.error}`);
+    throw ApiError.badRequest('magic_link_delivery_failed', 'The sign-in email could not be delivered. Check the address, or sign in another way.');
   }
 
   return { challenge, maskedDestination: maskDestination(destination) };
