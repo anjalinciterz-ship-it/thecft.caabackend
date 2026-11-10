@@ -72,7 +72,11 @@ export const env = {
   STRIPE_WEBHOOK_SECRET: raw.STRIPE_WEBHOOK_SIGNING_KEY,
   isProd: raw.NODE_ENV === 'production',
   isTest: raw.NODE_ENV === 'test',
-  allowedOrigins: raw.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+  // A browser sends the Origin without a trailing slash, so a pasted value like
+  // https://site.netlify.app/ would otherwise reject every real request.
+  allowedOrigins: raw.CORS_ALLOWED_ORIGINS.split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean),
   googleConfigured: raw.AUTH_GOOGLE_ENABLED && !!raw.GOOGLE_CLIENT_ID && !!raw.GOOGLE_CLIENT_SIGNIN_KEY,
   bunnyConfigured: !!raw.BUNNY_API_KEY && !!raw.BUNNY_LIBRARY_ID,
   bunnyTokensConfigured: !!raw.BUNNY_SIGNING_KEY,
