@@ -49,12 +49,12 @@ export async function describeVideo(guid) {
 // alongside the player options rather than replacing them.
 const PLAYER_OPTIONS = 'autoplay=false&mute=false&loop=false&controls=true&preload=false&playbackRate=false&quality_selector=1&contextmenu=false';
 
-export function buildPlaybackUrl(videoGuid, { ttlSeconds = env.VIDEO_SESSION_TTL_SECONDS } = {}) {
-  const path = `/embed/${env.BUNNY_LIBRARY_ID}/${videoGuid}`;
+export function buildPlaybackUrl(videoGuid, { libraryId = env.BUNNY_LIBRARY_ID, signingKey = env.BUNNY_TOKEN_KEY, ttlSeconds = env.VIDEO_SESSION_TTL_SECONDS } = {}) {
+  const path = `/embed/${libraryId}/${videoGuid}`;
   const base = `${env.BUNNY_EMBED_HOST}${path}?${PLAYER_OPTIONS}`;
-  if (!env.bunnyTokensConfigured) return { url: base, signed: false, expiresAt: null };
+  if (!signingKey) return { url: base, signed: false, expiresAt: null };
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const token = crypto.createHash('sha256').update(`${env.BUNNY_TOKEN_KEY}${videoGuid}${expires}`).digest('hex');
+  const token = crypto.createHash('sha256').update(`${signingKey}${videoGuid}${expires}`).digest('hex');
   return { url: `${base}&token=${token}&expires=${expires}`, signed: true, expiresAt: new Date(expires * 1000) };
 }
 

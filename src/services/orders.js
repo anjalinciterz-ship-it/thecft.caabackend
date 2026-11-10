@@ -83,6 +83,14 @@ async function discountFor(code) {
   });
 }
 
+// A bundle is bought as a single line but opens every offering inside it, so both
+// sides of the ledger have to expand it the same way.
+export const entitlementCourses = async (course) => {
+  const included = (course.bundleIncludes || []).filter(Boolean);
+  if (!included.length) return [course];
+  return [course, ...(await Course.find({ _id: { $in: included } }))];
+};
+
 export async function fulfilOrder({ order, event = null, actor = null }) {
   if (order.paymentStatus === 'paid' && order.fulfillmentStatus === 'fulfilled') {
     return { order, fulfilled: false, alreadyFulfilled: true };
@@ -94,19 +102,21 @@ export async function fulfilOrder({ order, event = null, actor = null }) {
     if (!course) continue;
     courses.push(course);
     if (!order.student) continue;
-    await Entitlement.findOneAndUpdate(
-      { student: order.student, course: course.id },
-      {
-        $set: {
-          status: 'active',
-          source: 'purchase',
-          order: order.id,
-          accessUntil: accessUntilFor(course, order.paidAt || new Date())
+    for (const granted of await entitlementCourses(course)) {
+      await Entitlement.findOneAndUpdate(
+        { student: order.student, course: granted.id },
+        {
+          $set: {
+            status: 'active',
+            source: 'purchase',
+            order: order.id,
+            accessUntil: accessUntilFor(granted, order.paidAt || new Date())
+          },
+          $setOnInsert: { grantedAt: new Date() }
         },
-        $setOnInsert: { grantedAt: new Date() }
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
   }
 
   order.paymentStatus = 'paid';
@@ -205,11 +215,17 @@ export async function applyRefund(order, { amountMinor, reason, actor, revokeAcc
   let revokedCount = 0;
   if (revokeAccess && order.student) {
     for (const item of order.items) {
-      const result = await Entitlement.updateOne(
-        { student: order.student, course: item.course, status: 'active' },
-        { $set: { status: 'revoked', revokedAt: new Date(), revokedBy: actor?.id, revokeReason: reason } }
-      );
-      revokedCount += result.modifiedCount || 0;
+      const course = await Course.findById(item.course);
+      const targets = course ? await entitlementCourses(course) : [{ id: item.course }];
+      for (const target of targets) {
+        // Scoped to this order so a separately bought course cannot be revoked
+        // when the bundle that also contained it is refunded.
+        const result = await Entitlement.updateOne(
+          { student: order.student, course: target.id, order: order.id, status: 'active' },
+          { $set: { status: 'revoked', revokedAt: new Date(), revokedBy: actor?.id, revokeReason: reason } }
+        );
+        revokedCount += result.modifiedCount || 0;
+      }
     }
   }
 

@@ -228,15 +228,15 @@ try {
   const linkJar = await freshJar();
   const link = await linkJar.call('/api/v1/auth/otp/request', {
     method: 'POST',
-    body: { channel: 'email', destination: `link+${Date.now()}@verify.test`, purpose: 'link' }
+    body: { destination: `link+${Date.now()}@verify.test`, purpose: 'link' }
   });
   assert('linking a method needs a session', link.status === 401, link.error?.code);
 
-  const sms = await (await freshJar()).call('/api/v1/auth/otp/request', {
+  const phone = await (await freshJar()).call('/api/v1/auth/otp/request', {
     method: 'POST',
-    body: { channel: 'sms', destination: '+14165550111', purpose: 'login' }
+    body: { destination: '+14165550111', purpose: 'login' }
   });
-  assert('mobile codes explain that they are off', sms.status === 400 && sms.error?.code === 'auth_method_disabled', sms.error?.message);
+  assert('a mobile number is refused as a code destination', phone.status === 400 && phone.error?.code === 'invalid_email', phone.error?.message);
 
   const password = await (await freshJar()).call('/api/v1/auth/login', {
     method: 'POST',

@@ -20,7 +20,10 @@ async function libraryFor(studentId) {
   const rows = [];
   for (const entitlement of entitlements) {
     if (!entitlement.course) continue;
-    const lessons = await Lesson.find({ course: entitlement.course._id, publicationStatus: 'published' }).select('_id videoGuid');
+    // A bundle is taught through the courses inside it, so its tile counts and
+    // scores those lessons too rather than reporting an empty course.
+    const sourceIds = [entitlement.course._id, ...(entitlement.course.bundleIncludes || [])];
+    const lessons = await Lesson.find({ course: { $in: sourceIds }, publicationStatus: 'published' }).select('_id videoGuid');
     const ids = lessons.map((l) => l._id);
     const progress = ids.length
       ? await LessonProgress.find({ student: studentId, lesson: { $in: ids }, completed: true }).select('lesson')
@@ -70,11 +73,60 @@ router.get(
     const course = await findCourse(req.params.ref);
     if (!course) throw ApiError.notFound('Course not found.');
     const entitlement = await Entitlement.findOne({ student: req.user.id, course: course._id });
-    const modules = await Module.find({ course: course._id, publicationStatus: 'published' }).sort({ position: 1 });
-    const lessons = await Lesson.find({ course: course._id, publicationStatus: 'published' }).sort({ position: 1 });
+    const accessible = isAccessible(entitlement);
+
+    // A bundle carries no lessons of its own, it is the list of teachings inside it,
+    // so its page shows those in the order the bundle names them.
+    const sources = [course];
+    if (course.bundleIncludes?.length) {
+      const byId = new Map((await Course.find({ _id: { $in: course.bundleIncludes } })).map((c) => [String(c._id), c]));
+      for (const id of course.bundleIncludes) {
+        const included = byId.get(String(id));
+        if (included) sources.push(included);
+      }
+    }
+    const courseIds = sources.map((c) => c._id);
+    const [modules, lessons, entitlements] = await Promise.all([
+      Module.find({ course: { $in: courseIds }, publicationStatus: 'published' }).sort({ position: 1 }),
+      Lesson.find({ course: { $in: courseIds }, publicationStatus: 'published' }).sort({ position: 1 }),
+      Entitlement.find({ student: req.user.id, course: { $in: courseIds } })
+    ]);
     const progressRows = await LessonProgress.find({ student: req.user.id, lesson: { $in: lessons.map((l) => l._id) } });
     const progressByLesson = new Map(progressRows.map((p) => [String(p.lesson), p]));
-    const accessible = isAccessible(entitlement);
+    // Playback is granted on the teaching's own course, never on the bundle, so the
+    // lock follows that row and the list cannot offer a video the player then refuses.
+    const openCourses = new Set(entitlements.filter((e) => isAccessible(e)).map((e) => String(e.course)));
+
+    const curriculum = [];
+    for (const source of sources) {
+      for (const module of modules.filter((m) => String(m.course) === String(source._id))) {
+        curriculum.push({
+          id: String(module._id),
+          title: module.title,
+          summary: module.summary,
+          courseTitle: sources.length > 1 ? source.title : '',
+          lessons: lessons
+            .filter((lesson) => String(lesson.module) === String(module._id))
+            .map((lesson) => {
+              const row = progressByLesson.get(String(lesson._id));
+              const canPlay = openCourses.has(String(lesson.course));
+              return {
+                id: String(lesson._id),
+                title: lesson.title,
+                position: lesson.position,
+                durationSeconds: lesson.durationSeconds,
+                hasVideo: Boolean(lesson.videoGuid),
+                isPreview: lesson.isPreview,
+                locked: !canPlay && !lesson.isPreview,
+                completed: Boolean(row?.completed),
+                lastPositionSeconds: row?.lastPositionSeconds || 0,
+                courseTitle: sources.length > 1 ? source.title : '',
+                courseSlug: sources.length > 1 ? source.slug : ''
+              };
+            })
+        });
+      }
+    }
 
     ok(res, {
       course: {
@@ -91,27 +143,7 @@ router.get(
         isFree: course.isFree
       },
       access: accessible ? 'full' : entitlement ? 'revoked' : 'none',
-      curriculum: modules.map((module) => ({
-        id: String(module._id),
-        title: module.title,
-        summary: module.summary,
-        lessons: lessons
-          .filter((lesson) => String(lesson.module) === String(module._id))
-          .map((lesson) => {
-            const row = progressByLesson.get(String(lesson._id));
-            return {
-              id: String(lesson._id),
-              title: lesson.title,
-              position: lesson.position,
-              durationSeconds: lesson.durationSeconds,
-              hasVideo: Boolean(lesson.videoGuid),
-              isPreview: lesson.isPreview,
-              locked: !accessible && !lesson.isPreview,
-              completed: Boolean(row?.completed),
-              lastPositionSeconds: row?.lastPositionSeconds || 0
-            };
-          })
-      }))
+      curriculum
     });
   })
 );
@@ -306,7 +338,6 @@ const profileSchema = z.object({
     .regex(/^[a-z][a-z0-9_]{2,29}$/i, 'Use 3–30 characters, starting with a letter.')
     .optional(),
   timeZone: z.string().max(60).optional(),
-  phone: z.string().max(30).optional(),
   marketingOptIn: z.boolean().optional()
 });
 
@@ -353,11 +384,11 @@ router.post(
       if (!payload.currentPassword || !(await req.user.verifyPassword(payload.currentPassword))) {
         throw ApiError.badRequest('current_password_incorrect', 'Your current password does not match.');
       }
-    } else if (env.AUTH_OTP_EMAIL_ENABLED || env.AUTH_OTP_SMS_ENABLED) {
+    } else if (env.AUTH_OTP_EMAIL_ENABLED) {
       // First password is a new sign-in method, so it needs a fresh verification from an existing one.
       throw ApiError.badRequest(
         'verification_required',
-        'Verify your email or mobile number before setting a password.'
+        'Verify your email address before setting a password.'
       );
     }
     await req.user.setPassword(payload.newPassword);

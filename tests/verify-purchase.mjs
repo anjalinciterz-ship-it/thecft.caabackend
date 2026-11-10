@@ -87,6 +87,14 @@ const { Course, Entitlement, EmailMessage, Lesson, Order, User, WebhookEvent, Pl
 try {
   await seedCatalog();
 
+  // The two refusal paths depend on flags and lesson counts, not on any real
+  // offering, so they get their own fixtures instead of borrowing a catalogue
+  // course that stops being a valid example the moment its lessons are published.
+  await Course.create([
+    { legacyId: 'hidden-fixture', title: 'Not Open Yet', slug: 'not-open-yet', priceMinor: 19900, currency: 'USD', availableForPurchase: false, publicationStatus: 'published' },
+    { legacyId: 'empty-fixture', title: 'Nothing Published', slug: 'nothing-published', priceMinor: 19900, currency: 'USD', availableForPurchase: true, publicationStatus: 'published' },
+  ]);
+
   const health = await new Jar('health').call('/api/v1/health/integrations');
   assert('health reports integrations', health.status === 200 && health.data?.database?.status === 'connected', JSON.stringify(health.data?.payments));
   const root = await new Jar('health').call('/health');
@@ -95,8 +103,8 @@ try {
   const catalog = await new Jar('anon').call('/api/v1/courses?limit=60');
   const accelerator = catalog.data?.courses?.find((c) => c.slug === '10-part-consciousness-accelerator');
   assert('catalog lists the accelerator', Boolean(accelerator), `${catalog.data?.courses?.length || 0} courses, price ${accelerator?.priceMinor} ${accelerator?.currency}`);
-  const locked = catalog.data?.courses?.find((c) => c.slug === 'spiritual-awakening-1');
-  assert('undelivered courses refuse purchase', locked && locked.availableForPurchase === false, locked?.title);
+  const locked = catalog.data?.courses?.find((c) => c.slug === 'not-open-yet');
+  assert('courses closed for enrolment report themselves as closed', locked && locked.availableForPurchase === false, locked?.title);
 
   const email = `student.${randomUUID().slice(0, 8)}@verify.test`;
   const password = 'Verify-Password-123!';
@@ -117,12 +125,19 @@ try {
   });
   assert('server prices the cart', priced.data?.totalMinor === 19900 && priced.data?.currency === 'USD', JSON.stringify(priced.data?.items?.[0] || {}));
 
-  const blocked = await jar.call('/api/v1/cart/checkout', {
+  const closed = await jar.call('/api/v1/cart/checkout', {
     method: 'POST',
     headers: { 'Idempotency-Key': `verify-${randomUUID()}` },
-    body: { items: [{ productKind: 'course', productId: 'spiritual-awakening-1' }] }
+    body: { items: [{ productKind: 'course', productId: 'not-open-yet' }] }
   });
-  assert('an undelivered course cannot be bought', blocked.status === 409 && ['not_available', 'not_deliverable'].includes(blocked.error?.code), blocked.error?.code);
+  assert('a course closed for enrolment cannot be bought', closed.status === 409 && closed.error?.code === 'not_available', closed.error?.code);
+
+  const empty = await jar.call('/api/v1/cart/checkout', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': `verify-${randomUUID()}` },
+    body: { items: [{ productKind: 'course', productId: 'nothing-published' }] }
+  });
+  assert('a course with no published lessons cannot be bought', empty.status === 409 && empty.error?.code === 'not_deliverable', empty.error?.code);
 
   const checkoutKey = `verify-${randomUUID()}`;
   const checkout = await jar.call('/api/v1/cart/checkout', {
@@ -195,10 +210,14 @@ try {
   } catch {
     playerUrl = null;
   }
+  // Each course lives in its own Bunny library, so the embed has to name that
+  // library rather than whatever the server falls back to.
+  const courseLibrary = (await Course.findOne({ slug: '10-part-consciousness-accelerator' }))?.bunnyLibraryId;
   assert('playback uses the PlayerJS iframe the client accepts',
     issued.playbackType === 'iframe'
       && playerUrl?.origin === 'https://player.mediadelivery.net'
-      && /^\/embed\/788236\/[a-f\d-]{36}\/?$/i.test(playerUrl?.pathname || ''),
+      && Boolean(courseLibrary)
+      && new RegExp(`^/embed/${courseLibrary}/[a-f\\d-]{36}/?$`, 'i').test(playerUrl?.pathname || ''),
     issued.playbackUrl);
   assert('playback expires and heartbeats', Boolean(issued.expiresAt) && Number(issued.heartbeatSeconds) > 0, `ttl ${issued.expiresAt}`);
   assert('watermark carries name, email and session id',
@@ -209,24 +228,34 @@ try {
     issued.watermark?.text);
 
   const second = await jar.call(`/api/v1/video/lessons/${firstVideo.id}/playback`, { method: 'POST', body: {} });
-  assert('one account gets one viewer at a time', second.status === 409 && second.error?.code === 'already_watching', second.error?.code);
+  assert('a new player takes the slot instead of being locked out', second.status === 200 && Boolean(second.data?.playback?.sessionId), JSON.stringify(second.error || {}));
+  const holder = second.data?.playback || issued;
 
-  const heart = await jar.call(`/api/v1/video/playback/${issued.sessionId}/heartbeat`, { method: 'POST', body: { positionSeconds: 40 } });
+  const displaced = await jar.call(`/api/v1/video/playback/${issued.sessionId}/heartbeat`, { method: 'POST', body: {} });
+  assert('the displaced tab is told within one heartbeat', displaced.status === 410, JSON.stringify(displaced.error || {}));
+
+  const heart = await jar.call(`/api/v1/video/playback/${holder.sessionId}/heartbeat`, { method: 'POST', body: { positionSeconds: 40 } });
   assert('heartbeat keeps the session alive', heart.status === 200, JSON.stringify(heart.data || heart.error));
 
-  const saved = await jar.call(`/api/v1/student/lessons/${firstVideo.id}/progress`, { method: 'POST', body: { sessionId: issued.sessionId, positionSeconds: 55, watchedDeltaSeconds: 50 } });
+  const saved = await jar.call(`/api/v1/student/lessons/${firstVideo.id}/progress`, { method: 'POST', body: { sessionId: holder.sessionId, positionSeconds: 55, watchedDeltaSeconds: 50 } });
   assert('resume position is stored', saved.data?.lastPositionSeconds === 55, JSON.stringify(saved.data));
 
   const done = await jar.call(`/api/v1/student/lessons/${firstVideo.id}/complete`, { method: 'POST', body: {} });
   assert('lesson completion is stored', done.data?.completed === true);
 
-  const stop = await jar.call(`/api/v1/video/playback/${issued.sessionId}`, { method: 'DELETE' });
+  const stop = await jar.call(`/api/v1/video/playback/${holder.sessionId}`, { method: 'DELETE' });
   assert('closing the player releases the slot', stop.status === 200 || stop.status === 204, JSON.stringify(stop.data || stop.error));
-  assert('the released session is marked ended', (await PlaybackSession.countDocuments({ token: issued.sessionId, endedAt: { $ne: null } })) === 1);
+  assert('the released session is marked ended', (await PlaybackSession.countDocuments({ token: holder.sessionId, endedAt: { $ne: null } })) === 1);
 
   const again = await jar.call(`/api/v1/video/lessons/${firstVideo.id}/playback`, { method: 'POST', body: {} });
   assert('a released slot allows a new viewer', again.status === 200 && Boolean(again.data?.playback?.sessionId));
   await jar.call(`/api/v1/video/playback/${again.data.playback.sessionId}`, { method: 'DELETE' });
+
+  const openBefore = await PlaybackSession.countDocuments({ student: student.id, endedAt: null });
+  const signedOut = await jar.call('/api/v1/auth/logout', { method: 'POST', body: {} });
+  assert('signing out releases the video slot', signedOut.status === 204 && (await PlaybackSession.countDocuments({ student: student.id, endedAt: null })) === 0, `${signedOut.status} from ${openBefore}`);
+  await jar.withCsrf();
+  await jar.call('/api/v1/auth/login', { method: 'POST', body: { identifier: email, password } });
 
   const repurchase = await jar.call('/api/v1/cart/checkout', {
     method: 'POST',

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Lesson, Order } from '../models/index.js';
+import { Course, Lesson, Order } from '../models/index.js';
 import { ApiError, asyncHandler, ok, paginated } from '../lib/http.js';
 import { validate } from '../lib/validate.js';
 import { requireSignIn } from '../lib/security.js';
@@ -41,9 +41,20 @@ const orderSummary = (order) => ({
 async function assertDeliverable(lines) {
   for (const line of lines) {
     if (line.unitPriceMinor === 0) continue;
-    const lessons = await Lesson.countDocuments({ course: line.course, publicationStatus: 'published' });
-    if (lessons === 0) {
+    const course = await Course.findById(line.course);
+    // A bundle carries no lessons of its own, it sells the ones inside the
+    // offerings it names, so each of those has to be deliverable instead.
+    const sources = course?.bundleIncludes?.length
+      ? course.bundleIncludes
+      : [course?._id];
+    if (!sources[0]) {
       throw ApiError.conflict('not_deliverable', `${line.title} has no published lessons yet, so it cannot be sold.`);
+    }
+    for (const source of sources) {
+      const lessons = await Lesson.countDocuments({ course: source, publicationStatus: 'published' });
+      if (lessons === 0) {
+        throw ApiError.conflict('not_deliverable', `${line.title} has no published lessons yet, so it cannot be sold.`);
+      }
     }
   }
 }

@@ -84,8 +84,10 @@ router.post(
   })
 );
 
-// Only mounted when mock payments are allowed; the e2e suite fulfils through this door.
-if (env.PAYMENT_MOCK_ENABLED) {
+// Mounted outside the CSRF guard and with no auth, because providers sign raw
+// bytes. That makes it a door that grants course access to whoever posts through
+// it, so it exists only outside production, where the e2e suite fulfils orders.
+if (env.PAYMENT_MOCK_ENABLED && !env.isProd) {
   router.post(
     '/mock',
     // Raw body everywhere: this router is mounted before the global JSON parser so

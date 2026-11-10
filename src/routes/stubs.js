@@ -3,9 +3,9 @@ import { Article } from '../models/index.js';
 import { ApiError, asyncHandler, ok, paginated } from '../lib/http.js';
 import { requireSignIn } from '../lib/security.js';
 
-// Bookings, live classes, community and certificates are not built yet. Reads
-// answer with an empty collection so the dashboard renders its own empty state;
-// writes answer 501 instead of pretending the record was stored.
+// Bookings, community and certificates are not built yet. Reads answer with an
+// empty collection so the dashboard renders its own empty state; writes answer
+// 501 instead of pretending the record was stored.
 export const notBuilt = (feature) => () => {
   throw new ApiError('feature_not_available', 501, `${feature} is not available yet. Ask the team to switch it on.`);
 };
@@ -22,10 +22,10 @@ router.post('/bookings/:id/confirm', notBuilt('One-to-one bookings'));
 router.post('/bookings/:id/cancel', notBuilt('One-to-one bookings'));
 router.get('/bookings/:id/join', notBuilt('One-to-one bookings'));
 
+// The member-facing classes come from routes/liveClasses.js and the recurring
+// schedule. The public feed stays empty until the website's own countdown is
+// pointed at those dates, so no public page changes yet.
 router.get('/live-classes', asyncHandler(async (_req, res) => emptyPage(res, 'liveClasses')));
-router.get('/student/live-classes', asyncHandler(async (_req, res) => emptyPage(res, 'liveClasses')));
-router.post('/student/live-classes/:id/register', notBuilt('Live classes'));
-router.delete('/student/live-classes/:id/register', notBuilt('Live classes'));
 router.get('/student/live-classes/:id/join', notBuilt('Live classes'));
 router.get('/student/bookings', asyncHandler(async (_req, res) => emptyPage(res, 'bookings')));
 
