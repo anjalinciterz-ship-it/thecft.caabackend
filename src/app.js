@@ -17,6 +17,7 @@ import cartRouter from './routes/cart.js';
 import studentRouter from './routes/student.js';
 import videoRouter from './routes/video.js';
 import adminRouter from './routes/admin.js';
+import liveClassesRouter from './routes/liveClasses.js';
 import stubRouter from './routes/stubs.js';
 import contactRouter from './routes/contact.js';
 import healthRouter from './routes/health.js';
@@ -90,6 +91,7 @@ export function createApp({ sessionStore } = {}) {
     studentRouter,
     videoRouter,
     adminRouter,
+    liveClassesRouter,
     stubRouter
   );
   app.use('/api/v1', api);

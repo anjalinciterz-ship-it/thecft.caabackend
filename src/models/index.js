@@ -19,13 +19,11 @@ const userSchema = new Schema(
     passwordHash: { type: String },
     googleId: { type: String, index: true, sparse: true },
     username: { type: String, lowercase: true, trim: true, unique: true, sparse: true },
-    phoneVerified: { type: Boolean, default: false },
     avatarUrl: { type: String },
     role: { type: String, enum: ['student', 'admin', 'content_manager'], default: 'student', index: true },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
     emailVerified: { type: Boolean, default: false },
     timeZone: { type: String, default: 'UTC' },
-    phone: { type: String, trim: true },
     marketingOptIn: { type: Boolean, default: false },
     termsAcceptedAt: { type: Date },
     notificationPreferences: {
@@ -104,7 +102,9 @@ const courseSchema = new Schema(
     features: [{ type: String }],
     faqs: [{ q: String, a: String }],
     seo: { title: String, description: String },
-    banner: { url: String, width: Number, height: Number }
+    banner: { url: String, width: Number, height: Number },
+    bunnyLibraryId: { type: String, default: '' },
+    bunnySigningKey: { type: String, default: '' }
   },
   timestamps
 );
@@ -129,6 +129,9 @@ const lessonSchema = new Schema(
     position: { type: Number, default: 0, min: 0 },
     lessonType: { type: String, enum: ['video', 'text'], default: 'video' },
     videoGuid: { type: String, index: true },
+    // Set when the file lives in another course's video library, because a course
+    // can teach a video it does not own. Access still follows `course`.
+    videoSource: { type: Schema.Types.ObjectId, ref: 'Course', default: null },
     durationSeconds: { type: Number, default: 0, min: 0 },
     summary: { type: String, default: '' },
     textContent: { type: String, default: '' },
@@ -370,7 +373,7 @@ const notificationSchema = new Schema(
 const otpChallengeSchema = new Schema(
   {
     destination: { type: String, required: true, lowercase: true },
-    channel: { type: String, enum: ['email', 'sms'], required: true },
+    channel: { type: String, enum: ['email'], default: 'email' },
     purpose: { type: String, required: true },
     codeHash: { type: String, required: true },
     profile: { type: Schema.Types.Mixed },
@@ -430,6 +433,21 @@ const contactMessageSchema = new Schema(
   timestamps
 );
 
+// The recurring Wisdom Call dates are derived from a rule, so the only thing
+// worth storing about a class is that a member put their name against one.
+const liveClassRegistrationSchema = new Schema(
+  {
+    student: userRef,
+    occurrence: { type: String, required: true },
+    series: { type: String, required: true },
+    startAt: { type: Date, required: true },
+    status: { type: String, enum: ['registered', 'cancelled'], default: 'registered' },
+    cancelledAt: { type: Date }
+  },
+  timestamps
+);
+liveClassRegistrationSchema.index({ student: 1, occurrence: 1 }, { unique: true });
+
 export const User = model('User', userSchema);
 export const Course = model('Course', courseSchema);
 export const Module = model('Module', moduleSchema);
@@ -449,3 +467,4 @@ export const MagicLinkChallenge = model('MagicLinkChallenge', magicLinkChallenge
 export const Counter = model('Counter', counterSchema);
 export const ContactMessage = model('ContactMessage', contactMessageSchema);
 export const Article = model('Article', articleSchema);
+export const LiveClassRegistration = model('LiveClassRegistration', liveClassRegistrationSchema);

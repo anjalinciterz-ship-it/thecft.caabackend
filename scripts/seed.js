@@ -47,12 +47,25 @@ const sa2Videos = [
   { title: 'Class 11', guid: 'ab44bde2-0992-4e56-a560-4b81c820c745', seconds: 1800, module: 'Class 11' }
 ];
 
-const mindlifeVideos = [
-  { title: "Valentine's Day Memoir", guid: 'd4521fb0-b1c2-4cf0-bef4-2945cda899ae', seconds: 1800, preview: true, module: "Valentine's Day Memoir" },
+// Mind & Life teaches its own four videos plus the whole Accelerator, so the
+// borrowed rows name the course whose library holds them.
+const borrowed = acceleratorVideos.map((video) => ({ ...video, source: 'accelerator' }));
+const mindlifeOwnVideos = [
+  { title: "Valentine's Day Memoir", guid: 'd4521fb0-b1c2-4cf0-bef4-2945cda899ae', seconds: 1800, module: "Valentine's Day Memoir" },
   { title: 'Earth Day Webinar', guid: '155f9457-f1da-4f4f-9c49-70d1e5b6ffe3', seconds: 1800, module: 'Earth Day Webinar' },
   { title: 'Life is Like a Swimming Pool', guid: '9114dabe-d86d-4834-95cd-c41af994c595', seconds: 1800, module: 'Life is Like a Swimming Pool' },
   { title: 'Psychology Of Meditation', guid: '67d78740-47cd-4693-b52d-90aba37989c4', seconds: 1800, module: 'Psychology Of Meditation' }
 ];
+const mindlifeVideos = [borrowed[0], ...mindlifeOwnVideos, ...borrowed.slice(1)];
+
+// Each course plays out of its own Bunny library, and the token key that signs
+// those embeds is a secret, so it comes from backend/.env and never from this file.
+const bunnySigningKeys = {
+  accelerator: process.env.BUNNY_SIGNING_KEY_ACCELERATOR || '',
+  mindlife: process.env.BUNNY_SIGNING_KEY_MINDLIFE || '',
+  sa1: process.env.BUNNY_SIGNING_KEY_SA1 || '',
+  sa2: process.env.BUNNY_SIGNING_KEY_SA2 || ''
+};
 
 const courses = [
   {
@@ -72,6 +85,8 @@ const courses = [
     availableForPurchase: true,
     publicationStatus: 'published',
     banner: { url: '/images/courses/accelerator-banner.webp', width: 1669, height: 942 },
+    bunnyLibraryId: '802324',
+    bunnySigningKey: bunnySigningKeys.accelerator,
     outcomes: [
       'Greater self-awareness',
       'Practical tools and guidance',
@@ -105,7 +120,9 @@ const courses = [
     currency: 'USD',
     availableForPurchase: true,
     publicationStatus: 'published',
-    banner: { url: '/images/courses/mindlife-banner.webp', width: 1670, height: 942 }
+    banner: { url: '/images/courses/mindlife-banner.webp', width: 1670, height: 942 },
+    bunnyLibraryId: '802549',
+    bunnySigningKey: bunnySigningKeys.mindlife
   },
   {
     legacyId: 'sa1',
@@ -123,7 +140,9 @@ const courses = [
     currency: 'USD',
     availableForPurchase: true,
     publicationStatus: 'published',
-    banner: { url: '/images/courses/sa1-banner.webp', width: 1670, height: 941 }
+    banner: { url: '/images/courses/sa1-banner.webp', width: 1670, height: 941 },
+    bunnyLibraryId: '802325',
+    bunnySigningKey: bunnySigningKeys.sa1
   },
   {
     legacyId: 'sa2',
@@ -141,7 +160,9 @@ const courses = [
     currency: 'USD',
     availableForPurchase: true,
     publicationStatus: 'published',
-    banner: { url: '/images/courses/sa2-banner.webp', width: 1670, height: 942 }
+    banner: { url: '/images/courses/sa2-banner.webp', width: 1670, height: 942 },
+    bunnyLibraryId: '802326',
+    bunnySigningKey: bunnySigningKeys.sa2
   },
   {
     legacyId: 'complete',
@@ -159,8 +180,8 @@ const courses = [
     currency: 'USD',
     availableForPurchase: true,
     publicationStatus: 'published',
-    bundleLegacy: ['accelerator', 'mindlife', 'sa1', 'sa2'],
-    features: ['All videos from all four courses', '4 free 1-on-1 sessions with Zalah'],
+    bundleLegacy: ['accelerator', 'sa1', 'sa2'],
+    features: ['All videos from all three courses', '4 free 1-on-1 sessions with Zalah'],
     banner: { url: '/images/courses/complete-banner.webp', width: 1671, height: 941 }
   }
 ];
@@ -177,7 +198,7 @@ const upsertCourse = async (data) => {
   return course;
 };
 
-const seedCourseLessons = async (course, videos, label) => {
+const seedCourseLessons = async (course, videos, label, byLegacy = new Map()) => {
   const byTitle = new Map();
   for (const [index, video] of videos.entries()) {
     const moduleTitle = video.module;
@@ -190,6 +211,8 @@ const seedCourseLessons = async (course, videos, label) => {
       byTitle.set(moduleTitle, module);
     }
     const module = byTitle.get(moduleTitle);
+    const source = video.source ? byLegacy.get(video.source) : null;
+    if (video.source && !source) throw new Error(`Lesson "${video.title}" borrows from ${video.source}, which is not seeded yet.`);
     await Lesson.findOneAndUpdate(
       { course: course._id, module: module._id, title: video.title },
       {
@@ -197,6 +220,7 @@ const seedCourseLessons = async (course, videos, label) => {
           position: index,
           lessonType: 'video',
           videoGuid: video.guid,
+          videoSource: source ? source._id : null,
           durationSeconds: video.seconds,
           isPreview: Boolean(video.preview),
           completion: { rule: 'watched' },
@@ -231,7 +255,7 @@ export const seedCatalog = async () => {
   await seedCourseLessons(byLegacy.get('accelerator'), acceleratorVideos, 'intro is the free preview');
   await seedCourseLessons(byLegacy.get('sa1'), sa1Videos, 'intro is the free preview');
   await seedCourseLessons(byLegacy.get('sa2'), sa2Videos, 'intro is the free preview');
-  await seedCourseLessons(byLegacy.get('mindlife'), mindlifeVideos, "Valentine's Day Memoir is the free preview");
+  await seedCourseLessons(byLegacy.get('mindlife'), mindlifeVideos, 'intro is the free preview, plus 4 Mind & Life videos and Accelerator lessons 1-10', byLegacy);
 };
 
 export const run = async () => {
