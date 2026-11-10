@@ -7,7 +7,7 @@ import { csrfGuard, issueCsrfToken, requireSignIn, assertNotTooManyAttempts, rec
 import { signInWithGoogle } from '../services/google.js';
 import { issueOtp, redeemOtp, maskDestination, OTP_MAX_ATTEMPTS } from '../services/otp.js';
 import { issueMagicLink, redeemMagicLink, MAGIC_LINK_TTL_SECONDS } from '../services/magicLink.js';
-import { User } from '../models/index.js';
+import { PlaybackSession, User } from '../models/index.js';
 
 export const router = Router();
 
@@ -41,8 +41,7 @@ router.get(
   asyncHandler(async (_req, res) =>
     ok(res, {
       otp: {
-        email: { enabled: env.AUTH_OTP_EMAIL_ENABLED },
-        sms: { enabled: env.AUTH_OTP_SMS_ENABLED, countries: [] }
+        email: { enabled: env.AUTH_OTP_EMAIL_ENABLED }
       },
       magicLink: { enabled: env.AUTH_MAGIC_LINK_ENABLED, minutes: Math.round(MAGIC_LINK_TTL_SECONDS / 60) },
       password: { enabled: env.AUTH_PASSWORD_ENABLED },
@@ -92,7 +91,6 @@ router.post(
 );
 
 const otpRequestSchema = z.object({
-  channel: z.enum(['email', 'sms']),
   destination: z.string().trim().toLowerCase().min(3).max(254),
   purpose: z.enum(['login', 'signup', 'link']).default('login'),
   firstName: z.string().trim().max(60).optional(),
@@ -108,9 +106,6 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = validate(otpRequestSchema, req.body);
 
-    if (body.channel === 'sms') {
-      throw methodDisabled('an email code');
-    }
     if (!env.AUTH_OTP_EMAIL_ENABLED) throw methodDisabled('your password');
     if (!EMAIL_PATTERN.test(body.destination)) throw ApiError.badRequest('invalid_email', 'Enter a valid email address.');
 
@@ -131,7 +126,7 @@ router.post(
     }
 
     const { challenge } = await issueOtp({
-      channel: body.channel,
+      channel: 'email',
       destination: body.destination,
       purpose: body.purpose,
       profile: {
@@ -287,8 +282,17 @@ router.post(
   '/logout',
   asyncHandler(async (req, res) => {
     if (!req.session) return noContent(res);
+    const uid = req.session.uid;
     await new Promise((resolve) => req.session.destroy(() => resolve()));
     res.clearCookie('cft.sid');
+    // A signed-out account must not keep holding a video slot, otherwise the next
+    // sign-in inherits a session nobody can reach.
+    if (uid) {
+      await PlaybackSession.updateMany(
+        { student: uid, endedAt: null },
+        { $set: { endedAt: new Date(), endedReason: 'signed_out' } }
+      );
+    }
     noContent(res);
   })
 );

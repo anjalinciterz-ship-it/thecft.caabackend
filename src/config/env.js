@@ -25,7 +25,6 @@ const schema = z.object({
 
   AUTH_PASSWORD_ENABLED: bool('false'),
   AUTH_OTP_EMAIL_ENABLED: bool('false'),
-  AUTH_OTP_SMS_ENABLED: bool('false'),
   AUTH_MAGIC_LINK_ENABLED: bool('false'),
   OTP_HASH_PEPPER: z.string().default('dev-only-otp-pepper'),
 
@@ -39,6 +38,10 @@ const schema = z.object({
   VIDEO_MAX_CONCURRENT_SESSIONS: z.coerce.number().int().min(1).default(1),
   WATERMARK_OPACITY: z.coerce.number().min(0.05).max(1).default(0.32),
   WATERMARK_MOVE_SECONDS: z.coerce.number().int().min(3).default(7),
+
+  WISDOM_CALL_TIMEZONE: z.string().default('America/Denver'),
+  WISDOM_CALL_HOUR: z.coerce.number().int().min(0).max(23).default(19),
+  WISDOM_CALL_MINUTE: z.coerce.number().int().min(0).max(59).default(0),
 
   PAYMENT_PROVIDER: z.enum(['mock', 'stripe']).default('mock'),
   PAYMENT_MOCK_ENABLED: bool('true'),
