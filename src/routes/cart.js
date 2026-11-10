@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Course, Lesson, Order } from '../models/index.js';
+import { Course, Lesson, Order, AuditLog } from '../models/index.js';
 import { ApiError, asyncHandler, ok, paginated } from '../lib/http.js';
 import { validate } from '../lib/validate.js';
 import { requireSignIn } from '../lib/security.js';
+import { env } from '../config/env.js';
 import { createCheckout } from '../services/payments/index.js';
 import { createOrder, fulfilOrder, priceItems } from '../services/orders.js';
 
@@ -147,6 +148,39 @@ router.get(
     const order = await Order.findById(req.params.id);
     if (!order || String(order.student) !== String(req.user.id)) throw ApiError.notFound('Order not found.');
     ok(res, { order: orderSummary(order) });
+  })
+);
+
+// A server with no Stripe key runs the mock provider, which leaves every order
+// pending because there is no card page to finish. This opens the courses on the
+// caller's own order so the site can be tried end to end, and it works in
+// production too, unlike the unsigned mock webhook. It disappears the moment a
+// real Stripe key is configured, so no buyer can ever use it for free access.
+router.post(
+  '/orders/:id/test-payment',
+  requireSignIn,
+  asyncHandler(async (req, res) => {
+    if (env.stripeConfigured) {
+      throw ApiError.badRequest('live_payment_required', 'This server takes real card payments, so a test payment is not available.');
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order || String(order.student) !== String(req.user.id)) throw ApiError.notFound('Order not found.');
+    if (order.paymentStatus === 'cancelled') throw ApiError.conflict('order_cancelled', 'That order was cancelled.');
+    if (order.paymentStatus === 'paid') return ok(res, { order: orderSummary(order), alreadyPaid: true });
+
+    order.providerSessionId = order.providerSessionId || `test_cs_${String(order._id)}`;
+    order.providerChargeId = `test_charge_${String(order._id)}`;
+    await fulfilOrder({ order, actor: req.user });
+    await AuditLog.create({
+      actor: req.user.id,
+      actorEmail: req.user.email,
+      action: 'order.test_payment',
+      targetKind: 'order',
+      targetId: String(order._id),
+      summary: `Test payment recorded for ${order.orderNumber}`,
+      ip: req.ip
+    });
+    ok(res, { order: orderSummary(order), testPayment: true });
   })
 );
 
