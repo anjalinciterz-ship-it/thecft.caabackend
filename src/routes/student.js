@@ -212,6 +212,7 @@ router.post(
     ok(res, {
       lastPositionSeconds: row.lastPositionSeconds,
       watchedSeconds: row.watchedSeconds,
+      watchedPercent: lesson.durationSeconds ? Math.min(100, Math.round((row.watchedSeconds / lesson.durationSeconds) * 100)) : 0,
       completed: row.completed,
       updatedAt: row.updatedAt
     });
