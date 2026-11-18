@@ -182,7 +182,7 @@ const courses = [
     publicationStatus: 'published',
     bundleLegacy: ['accelerator', 'sa1', 'sa2'],
     features: ['All videos from all three courses', '4 free 1-on-1 sessions with Zalah'],
-    banner: { url: '/images/courses/complete-banner.webp', width: 1671, height: 941 }
+    banner: { url: '/images/courses/complete-banner.webp', width: 1670, height: 941 }
   }
 ];
 
