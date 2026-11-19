@@ -61,6 +61,7 @@ export async function startDevStack({ quiet = false, useRealAuth = false, liveMa
     RESEND_API_KEY: liveMail ? process.env.RESEND_API_KEY || undefined : undefined,
     EMAIL_FROM: liveMail ? process.env.EMAIL_FROM || undefined : undefined,
     ADMIN_NOTIFY_EMAIL: liveMail ? process.env.ADMIN_NOTIFY_EMAIL || undefined : undefined,
+    CONTACT_NOTIFY_EMAIL: liveMail ? process.env.CONTACT_NOTIFY_EMAIL || undefined : undefined,
     ...realFromEnv
   });
 

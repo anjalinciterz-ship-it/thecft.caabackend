@@ -52,7 +52,8 @@ const schema = z.object({
   EMAIL_PROVIDER: z.enum(['mock', 'resend']).default('mock'),
   RESEND_API_KEY: z.string().default(''),
   EMAIL_FROM: z.string().default('Mind Life Academy <onboarding@resend.dev>'),
-  ADMIN_NOTIFY_EMAIL: z.string().default('')
+  ADMIN_NOTIFY_EMAIL: z.string().default(''),
+  CONTACT_NOTIFY_EMAIL: z.string().default('')
 });
 
 const parsed = schema.safeParse(process.env);

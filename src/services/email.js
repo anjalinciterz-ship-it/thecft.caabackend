@@ -5,9 +5,9 @@ import { EmailMessage } from '../models/index.js';
 let client;
 const resend = () => client || (client = new Resend(env.RESEND_API_KEY));
 
-const shell = (title, body) => `<!doctype html><html><body style="margin:0;background:#120A24;padding:24px;font-family:Georgia,serif;color:#F8F5EF">
+const shell = (title, body, eyebrow = 'Mind Life Academy') => `<!doctype html><html><body style="margin:0;background:#120A24;padding:24px;font-family:Georgia,serif;color:#F8F5EF">
   <div style="max-width:560px;margin:0 auto;background:#1c1030;border:1px solid rgba(232,185,95,.35);border-radius:14px;padding:28px">
-    <p style="margin:0 0 6px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#E8B95F">Mind Life Academy</p>
+    <p style="margin:0 0 6px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#E8B95F">${eyebrow}</p>
     <h1 style="margin:0 0 16px;font-size:24px;font-weight:600;color:#F8F5EF">${title}</h1>
     <div style="font-size:15px;line-height:1.65;color:#EDE7F5">${body}</div>
     <p style="margin:26px 0 0;font-size:12px;color:#b9aecb">vaibhavbuilds.space · help@vaibhavbuilds.space</p>
@@ -15,6 +15,23 @@ const shell = (title, body) => `<!doctype html><html><body style="margin:0;backg
 </body></html>`;
 
 const strip = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+/* A contact message is whatever a stranger typed, and it is about to be opened
+   in his inbox, so every value is escaped before it goes into the markup. */
+const esc = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/* A mail header is plain text, so anything that looks like markup is dropped
+   rather than encoded; an inbox should never show a stray angle bracket. */
+const plain = (value) =>
+  String(value ?? '')
+    .replace(/[<>&"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /** A one-time code must not linger in the mail log once the message has gone out. */
 async function redact(record, template) {
@@ -83,13 +100,30 @@ const templates = {
        <p style="font-size:13px;color:#b9aecb">If you did not ask for this, nothing else is needed, the link cannot
        open your account without your mail inbox.</p>`
     )
+  }),
+  contact_message: ({ contact }) => ({
+    subject: `Website message: ${plain(contact.topic) || plain(contact.name) || 'new enquiry'}`.slice(0, 120),
+    replyTo: contact.email,
+    html: shell(
+      'A new message from the website',
+      `<table style="font-size:14px;border-collapse:collapse">
+         <tr><td style="padding:2px 10px 2px 0;color:#b9aecb">Name</td><td>${esc(contact.name)}</td></tr>
+         <tr><td style="padding:2px 10px 2px 0;color:#b9aecb">Email</td><td>${esc(contact.email)}</td></tr>
+         ${contact.phone ? `<tr><td style="padding:2px 10px 2px 0;color:#b9aecb">Phone</td><td>${esc(contact.phone)}</td></tr>` : ''}
+         ${contact.topic ? `<tr><td style="padding:2px 10px 2px 0;color:#b9aecb">Subject</td><td>${esc(contact.topic)}</td></tr>` : ''}
+       </table>
+       <p style="margin:18px 0 6px;color:#b9aecb;font-size:13px">Message</p>
+       <p style="margin:0;white-space:pre-wrap">${esc(contact.message)}</p>
+       <p style="font-size:13px;color:#b9aecb">Replied to from this email reaches the sender. Source: ${esc(contact.source || 'site')}.</p>`,
+      'The Centre for Transformation'
+    )
   })
 };
 
-export async function sendEmail({ template, to, student, order, courses, course, otp, magic, orderRef, studentRef }) {
+export async function sendEmail({ template, to, student, order, courses, course, otp, magic, contact, orderRef, studentRef }) {
   const built = templates[template];
   if (!built) throw new Error(`Unknown email template: ${template}`);
-  const { subject, html } = built({ student, order, courses, course, otp, magic });
+  const { subject, html, replyTo } = built({ student, order, courses, course, otp, magic, contact });
   const record = await EmailMessage.create({
     template,
     to: String(to).toLowerCase(),
@@ -115,7 +149,7 @@ export async function sendEmail({ template, to, student, order, courses, course,
   try {
     // The SDK answers with { data, error } instead of throwing, so a rejected
     // send looks like a resolved promise unless the error field is read.
-    const sent = await resend().emails.send({ from: env.EMAIL_FROM, to: record.to, subject, html });
+    const sent = await resend().emails.send({ from: env.EMAIL_FROM, to: record.to, subject, html, ...(replyTo ? { replyTo } : {}) });
     if (sent?.error) throw new Error(sent.error.message || 'The email provider rejected the message.');
     record.providerId = sent?.data?.id;
     record.status = 'sent';
@@ -136,5 +170,6 @@ export const emailStatus = () => ({
   provider: env.EMAIL_PROVIDER,
   configured: env.resendConfigured,
   from: env.EMAIL_FROM,
-  adminNotify: env.ADMIN_NOTIFY_EMAIL || null
+  adminNotify: env.ADMIN_NOTIFY_EMAIL || null,
+  contactNotify: env.CONTACT_NOTIFY_EMAIL || env.ADMIN_NOTIFY_EMAIL || null
 });
